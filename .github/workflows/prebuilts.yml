@@ -169,13 +169,15 @@ jobs:
           import WebView2Core
           import CWinRT
 
-          // Touch symbols from several projections so the modules really have to
+          // Touch a symbol from each projection so every module really has to
           // load, and so the static archive really has to resolve at link time.
           public func probe() -> [String] {
               [
                   String(describing: WinUI.Button.self),
-                  String(describing: UWP.Uri.self),
-                  String(describing: WindowsFoundation.IReference.self),
+                  String(describing: UWP.ApplicationDataSetVersionHandler.self),
+                  String(describing: WinAppSDK.WindowsAppRuntimeInitializer.self),
+                  String(describing: WebView2Core.CoreWebView2Certificate_Manual.self),
+                  String(describing: (any WindowsFoundation.IReference).self),
               ]
           }
           '@ | Set-Content "$c/Sources/Probe/Probe.swift" -Encoding utf8
