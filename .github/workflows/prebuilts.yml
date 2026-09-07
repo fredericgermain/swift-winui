@@ -1,0 +1,191 @@
+name: Prebuilts
+
+# Builds swift-winui once on a Windows runner and publishes the result as a
+# SwiftPM artifact bundle, so downstream packages do not have to recompile the
+# ~317 generated WinRT projection sources on every cold build.
+#
+# The Swift module format is not stable across compiler versions, so a bundle is
+# only usable by the exact Swift release it was produced with. The toolchain
+# version is therefore part of the release tag and of the asset name.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to record in info.json and in the release tag"
+        required: true
+        default: "0.2.2"
+      publish:
+        description: "Create/update a GitHub release with the bundle"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "prebuilt-*"
+
+permissions:
+  contents: write
+
+env:
+  SWIFT_BRANCH: swift-6.1-release
+  SWIFT_TAG: 6.1-RELEASE
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # bash is not supported by gha-setup-swift:
+        # https://github.com/compnerd/gha-setup-swift/issues/18#issuecomment-1705524890
+        shell: pwsh
+
+    steps:
+      - name: Setup VS Dev Environment
+        uses: seanmiddleditch/gha-setup-vsdevenv@v5
+
+      - name: Setup Swift
+        uses: compnerd/gha-setup-swift@v0.3.0
+        with:
+          branch: ${{ env.SWIFT_BRANCH }}
+          tag: ${{ env.SWIFT_TAG }}
+
+      - name: Swift version
+        run: swift --version
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: vars
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if (-not $v) { $v = "${{ github.ref_name }}" -replace '^prebuilt-','' }
+          if (-not $v) { $v = "0.0.0" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "triple=x86_64-unknown-windows-msvc" >> $env:GITHUB_OUTPUT
+          "swifttag=${{ env.SWIFT_TAG }}" >> $env:GITHUB_OUTPUT
+
+      # SWIFT_WINUI_AGGREGATE makes Package.swift expose a single static library
+      # product covering every target, so the whole package archives into one .lib.
+      - name: Build aggregate static library
+        env:
+          SWIFT_WINUI_AGGREGATE: "1"
+        run: swift build -c release --product SwiftWinUIAggregate
+
+      - name: List build products
+        env:
+          SWIFT_WINUI_AGGREGATE: "1"
+        run: |
+          $bin = swift build -c release --show-bin-path
+          "binpath=$bin" >> $env:GITHUB_OUTPUT
+          Get-ChildItem $bin -Filter *.lib | Format-Table Name, Length
+          Get-ChildItem (Join-Path $bin "Modules") | Format-Table Name, Length
+        id: bin
+
+      - name: Assemble artifact bundle
+        run: |
+          ./Scripts/make-artifact-bundle.ps1 `
+            -BuildDir "${{ steps.bin.outputs.binpath }}" `
+            -Triple "${{ steps.vars.outputs.triple }}" `
+            -OutDir "$env:RUNNER_TEMP/out" `
+            -Version "${{ steps.vars.outputs.version }}"
+
+      - name: Zip and checksum
+        id: pack
+        run: |
+          $name = "swift-winui-${{ steps.vars.outputs.version }}-${{ steps.vars.outputs.triple }}-${{ steps.vars.outputs.swifttag }}.artifactbundle.zip"
+          $zip = Join-Path $env:RUNNER_TEMP $name
+          Compress-Archive -Path "$env:RUNNER_TEMP/out/swift-winui.artifactbundle" -DestinationPath $zip
+          # SwiftPM validates a remote binaryTarget against this checksum.
+          $sum = (swift package compute-checksum $zip).Trim()
+          Write-Host "checksum: $sum"
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          "checksum=$sum" >> $env:GITHUB_OUTPUT
+
+      # Proves the bundle is consumable before anything is published: builds a
+      # throwaway package whose only dependency is the bundle, importing every
+      # module that downstream code (e.g. swift-cross-ui's WinUIBackend) uses.
+      - name: Verify a consumer builds against the bundle
+        run: |
+          $c = Join-Path $env:RUNNER_TEMP "consumer"
+          New-Item -ItemType Directory -Force -Path "$c/Sources/Probe" | Out-Null
+          Copy-Item -Recurse "$env:RUNNER_TEMP/out/swift-winui.artifactbundle" $c
+          @'
+          // swift-tools-version: 5.10
+          import PackageDescription
+          let package = Package(
+              name: "Consumer",
+              products: [
+                  .library(name: "WinUI", targets: ["SwiftWinUIPrebuilt"]),
+                  .library(name: "UWP", targets: ["SwiftWinUIPrebuilt"]),
+                  .library(name: "WinAppSDK", targets: ["SwiftWinUIPrebuilt"]),
+                  .library(name: "WindowsFoundation", targets: ["SwiftWinUIPrebuilt"]),
+                  .library(name: "WebView2Core", targets: ["SwiftWinUIPrebuilt"]),
+                  .library(name: "CWinRT", targets: ["SwiftWinUIPrebuilt"]),
+              ],
+              targets: [
+                  .binaryTarget(name: "SwiftWinUIPrebuilt", path: "swift-winui.artifactbundle"),
+                  .target(name: "Probe", dependencies: ["SwiftWinUIPrebuilt"]),
+              ]
+          )
+          '@ | Set-Content "$c/Package.swift" -Encoding utf8
+          @'
+          import WinUI
+          import UWP
+          import WinAppSDK
+          import WindowsFoundation
+          import WebView2Core
+          import CWinRT
+
+          // Touch a symbol from the projections so the module really has to load
+          // and the static library really has to resolve at link time.
+          public func probe() -> String {
+              String(describing: WinUI.Button.self)
+          }
+          '@ | Set-Content "$c/Sources/Probe/Probe.swift" -Encoding utf8
+          Push-Location $c
+          swift build -v
+          Pop-Location
+
+      - name: Upload bundle as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-winui-artifactbundle
+          path: ${{ steps.pack.outputs.zip }}
+
+      - name: Write consumption instructions
+        run: |
+          $url = "https://github.com/${{ github.repository }}/releases/download/prebuilt-${{ steps.vars.outputs.version }}/${{ steps.pack.outputs.name }}"
+          @"
+          ## Prebuilt swift-winui
+
+          | | |
+          |---|---|
+          | version | ``${{ steps.vars.outputs.version }}`` |
+          | triple | ``${{ steps.vars.outputs.triple }}`` |
+          | toolchain | ``${{ steps.vars.outputs.swifttag }}`` |
+          | checksum | ``${{ steps.pack.outputs.checksum }}`` |
+
+          The Swift module format is tied to the compiler version: this bundle is
+          only usable with Swift ${{ steps.vars.outputs.swifttag }}.
+
+          ``````swift
+          .binaryTarget(
+              name: "SwiftWinUIPrebuilt",
+              url: "$url",
+              checksum: "${{ steps.pack.outputs.checksum }}"
+          )
+          ``````
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish release
+        if: ${{ github.event.inputs.publish == 'true' || startsWith(github.ref, 'refs/tags/prebuilt-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "prebuilt-${{ steps.vars.outputs.version }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag --notes "Prebuilt swift-winui for ${{ steps.vars.outputs.triple }}, Swift ${{ steps.vars.outputs.swifttag }}. checksum: ${{ steps.pack.outputs.checksum }}"
+          }
+          gh release upload $tag "${{ steps.pack.outputs.zip }}" --clobber

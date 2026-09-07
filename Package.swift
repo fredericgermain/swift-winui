@@ -1,6 +1,7 @@
 // swift-tools-version: 5.10
 
 import PackageDescription
+import Foundation
 
 #if arch(x86_64)
     let windowsAppRTBootstrapDll: Resource = .copy("nuget/bin/x86_64/Microsoft.WindowsAppRuntime.Bootstrap.dll")
@@ -68,3 +69,28 @@ let package = Package(
         ),
     ]
 )
+
+// MARK: - Prebuilt aggregation
+//
+// When SWIFT_WINUI_AGGREGATE is set, expose a single static library product that
+// archives every target in this package into one `.lib`. This is what the
+// prebuilts workflow (.github/workflows/prebuilts.yml) builds and ships inside a
+// SwiftPM artifact bundle. It is opt-in so that ordinary source consumers of this
+// package see exactly the same six products as upstream.
+if ProcessInfo.processInfo.environment["SWIFT_WINUI_AGGREGATE"] != nil {
+    package.products += [
+        .library(
+            name: "SwiftWinUIAggregate",
+            type: .static,
+            targets: [
+                "WinUI",
+                "UWP",
+                "WinAppSDK",
+                "WindowsFoundation",
+                "WebView2Core",
+                "CWinRT",
+                "CWinAppSDK",
+            ]
+        )
+    ]
+}

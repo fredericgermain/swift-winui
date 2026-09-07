@@ -75,6 +75,10 @@ public class WindowsAppRuntimeInitializer {
         let libraryPaths = [
             "swift-winui_CWinAppSDK.resources\\Microsoft.WindowsAppRuntime.Bootstrap.dll",
             "swift-winui_CWinAppSDK.bundle\\Microsoft.WindowsAppRuntime.Bootstrap.dll",
+            // When swift-winui is consumed as a prebuilt binary artifact there is no
+            // SwiftPM resource bundle; the bootstrapper DLL is copied next to the
+            // executable by the artifact bundle's `experimentalWindowsDLL` artifact.
+            "Microsoft.WindowsAppRuntime.Bootstrap.dll",
         ]
         guard
             let libraryPath = libraryPaths.first(where: { libraryPath in
