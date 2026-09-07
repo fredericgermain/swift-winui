@@ -154,8 +154,19 @@ $info = [ordered]@{
                     supportedTriples     = @($Triple)
                     staticLibraryMetadata = [ordered]@{
                         headerPaths   = @(
+                            # Where the .swiftmodule files live. SwiftPM passes
+                            # every headerPath to swiftc as a plain -I, which is
+                            # what makes the prebuilt Swift modules importable.
                             "$Triple/include/Modules",
-                            "$Triple/include"
+                            # Root for the modulemap's relative header paths.
+                            "$Triple/include",
+                            # CWinAppSDK-Bridging-Header.h uses angled includes of
+                            # the form <../nuget/include/...>. Angled includes are
+                            # resolved against the search paths rather than against
+                            # the including file, so the header's own directory has
+                            # to be a search path for `..` to reach nuget/include.
+                            "$Triple/include/CWinAppSDK/include",
+                            "$Triple/include/CWinRT/include"
                         )
                         moduleMapPath = "$Triple/include/module.modulemap"
                     }

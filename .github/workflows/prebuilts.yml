@@ -70,8 +70,9 @@ jobs:
 
       # Compiling the projections is the expensive step (~13 min); cache it so
       # that iterating on packaging does not pay for it every time.
-      - name: Cache build directory
-        uses: actions/cache@v4
+      - name: Restore build cache
+        id: buildcache
+        uses: actions/cache/restore@v4
         with:
           path: .build
           key: winui-build-${{ env.SWIFT_TAG }}-${{ hashFiles('Package.swift', 'Sources/**') }}
@@ -83,6 +84,15 @@ jobs:
         env:
           SWIFT_WINUI_AGGREGATE: "1"
         run: swift build -c release --product SwiftWinUIAggregate
+
+      # Saved separately, and unconditionally, so that a failure in a later
+      # packaging step does not throw away the ~13 minute compile.
+      - name: Save build cache
+        if: always() && steps.buildcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: winui-build-${{ env.SWIFT_TAG }}-${{ hashFiles('Package.swift', 'Sources/**') }}
 
       - name: List build products
         env:
