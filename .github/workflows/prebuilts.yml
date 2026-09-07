@@ -123,8 +123,13 @@ jobs:
       # exactly the shape of a downstream consumer such as swift-cross-ui.
       - name: Verify a consumer builds against the bundle
         env:
-          SWIFT_WINUI_PREBUILT: ${{ runner.temp }}\out\swift-winui.artifactbundle
+          # A local binaryTarget path must be relative to its own package root,
+          # so the bundle is staged inside the swift-winui checkout.
+          SWIFT_WINUI_PREBUILT: swift-winui.artifactbundle
         run: |
+          Copy-Item -Recurse -Force `
+            "$env:RUNNER_TEMP/out/swift-winui.artifactbundle" `
+            "$env:GITHUB_WORKSPACE/swift-winui.artifactbundle"
           $c = Join-Path $env:RUNNER_TEMP "consumer"
           if (Test-Path $c) { Remove-Item $c -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "$c/Sources/Probe" | Out-Null
