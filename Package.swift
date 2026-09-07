@@ -78,7 +78,7 @@ let prebuiltURL =
     "https://github.com/fredericgermain/swift-winui/releases/download/"
     + "prebuilt-\(prebuiltVersion)/swift-winui-\(prebuiltVersion)"
     + "-x86_64-unknown-windows-msvc-\(prebuiltSwiftTag).artifactbundle.zip"
-let prebuiltChecksum = "0000000000000000000000000000000000000000000000000000000000000000"
+let prebuiltChecksum = "f5332134a1b36c9efc1292b1a2a098a225242a42ecb6e61039e283ac786f69a6"
 
 // MARK: - Prebuilt aggregation
 //

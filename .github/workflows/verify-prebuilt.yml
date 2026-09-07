@@ -1,0 +1,147 @@
+name: Verify published prebuilt
+
+# Consumes the *published* release the way a real downstream package would:
+# a remote binaryTarget (url + checksum) resolved over the network, with
+# swift-winui itself pulled in as an ordinary git dependency.
+#
+# This is the end-to-end check that the prebuilts are actually usable, as
+# opposed to the in-workflow check in prebuilts.yml which uses a local path.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "prebuilt-*"
+
+jobs:
+  # The point of the exercise: how long does a cold build take against the
+  # prebuilt, versus building the projections from source?
+  prebuilt:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: seanmiddleditch/gha-setup-vsdevenv@v5
+      - uses: compnerd/gha-setup-swift@v0.3.0
+        with:
+          branch: swift-6.3.1-release
+          tag: 6.3.1-RELEASE
+      - run: swift --version
+
+      - name: Build a consumer against the published prebuilt
+        env:
+          SWIFT_WINUI_PREBUILT: "1"
+        run: |
+          $c = Join-Path $env:RUNNER_TEMP "consumer"
+          New-Item -ItemType Directory -Force -Path "$c/Sources/Probe" | Out-Null
+          @"
+          // swift-tools-version: 5.10
+          import PackageDescription
+          let package = Package(
+              name: "Consumer",
+              dependencies: [
+                  .package(url: "https://github.com/${{ github.repository }}", branch: "main")
+              ],
+              targets: [
+                  .target(name: "Probe", dependencies: [
+                      .product(name: "WinUI", package: "swift-winui"),
+                      .product(name: "UWP", package: "swift-winui"),
+                      .product(name: "WinAppSDK", package: "swift-winui"),
+                      .product(name: "WindowsFoundation", package: "swift-winui"),
+                      .product(name: "WebView2Core", package: "swift-winui"),
+                      .product(name: "CWinRT", package: "swift-winui"),
+                  ]),
+              ]
+          )
+          "@ | Set-Content "$c/Package.swift" -Encoding utf8
+          @'
+          import WinUI
+          import UWP
+          import WinAppSDK
+          import WindowsFoundation
+          import WebView2Core
+          import CWinRT
+
+          public func probe() -> [String] {
+              [
+                  String(describing: WinUI.Button.self),
+                  String(describing: UWP.ApplicationDataSetVersionHandler.self),
+                  String(describing: WinAppSDK.WindowsAppRuntimeInitializer.self),
+                  String(describing: WebView2Core.CoreWebView2.self),
+                  String(describing: (any WindowsFoundation.IReference).self),
+              ]
+          }
+          '@ | Set-Content "$c/Sources/Probe/Probe.swift" -Encoding utf8
+          Push-Location $c
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          swift build
+          $sw.Stop()
+          "PREBUILT cold build: $([math]::Round($sw.Elapsed.TotalSeconds,1)) s" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "PREBUILT cold build: $($sw.Elapsed.TotalSeconds) s"
+          Pop-Location
+
+  # Same consumer, same runner, but building swift-winui from source, so the
+  # two numbers in the job summaries are directly comparable.
+  from_source:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: seanmiddleditch/gha-setup-vsdevenv@v5
+      - uses: compnerd/gha-setup-swift@v0.3.0
+        with:
+          branch: swift-6.3.1-release
+          tag: 6.3.1-RELEASE
+      - run: swift --version
+
+      - name: Build the same consumer from source
+        run: |
+          $c = Join-Path $env:RUNNER_TEMP "consumer"
+          New-Item -ItemType Directory -Force -Path "$c/Sources/Probe" | Out-Null
+          @"
+          // swift-tools-version: 5.10
+          import PackageDescription
+          let package = Package(
+              name: "Consumer",
+              dependencies: [
+                  .package(url: "https://github.com/${{ github.repository }}", branch: "main")
+              ],
+              targets: [
+                  .target(name: "Probe", dependencies: [
+                      .product(name: "WinUI", package: "swift-winui"),
+                      .product(name: "UWP", package: "swift-winui"),
+                      .product(name: "WinAppSDK", package: "swift-winui"),
+                      .product(name: "WindowsFoundation", package: "swift-winui"),
+                      .product(name: "WebView2Core", package: "swift-winui"),
+                      .product(name: "CWinRT", package: "swift-winui"),
+                  ]),
+              ]
+          )
+          "@ | Set-Content "$c/Package.swift" -Encoding utf8
+          @'
+          import WinUI
+          import UWP
+          import WinAppSDK
+          import WindowsFoundation
+          import WebView2Core
+          import CWinRT
+
+          public func probe() -> [String] {
+              [
+                  String(describing: WinUI.Button.self),
+                  String(describing: UWP.ApplicationDataSetVersionHandler.self),
+                  String(describing: WinAppSDK.WindowsAppRuntimeInitializer.self),
+                  String(describing: WebView2Core.CoreWebView2.self),
+                  String(describing: (any WindowsFoundation.IReference).self),
+              ]
+          }
+          '@ | Set-Content "$c/Sources/Probe/Probe.swift" -Encoding utf8
+          Push-Location $c
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          swift build
+          $sw.Stop()
+          "FROM SOURCE cold build: $([math]::Round($sw.Elapsed.TotalSeconds,1)) s" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host "FROM SOURCE cold build: $($sw.Elapsed.TotalSeconds) s"
+          Pop-Location
