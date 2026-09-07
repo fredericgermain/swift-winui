@@ -113,33 +113,35 @@ jobs:
           "zip=$zip" >> $env:GITHUB_OUTPUT
           "checksum=$sum" >> $env:GITHUB_OUTPUT
 
-      # Proves the bundle is consumable before anything is published: builds a
-      # throwaway package whose only dependency is the bundle, importing every
-      # module that downstream code (e.g. swift-cross-ui's WinUIBackend) uses.
+      # Proves the bundle is consumable before anything is published. This goes
+      # through the real manifest (SWIFT_WINUI_PREBUILT pointing at the freshly
+      # built bundle), as a separate package depending on swift-winui, which is
+      # exactly the shape of a downstream consumer such as swift-cross-ui.
       - name: Verify a consumer builds against the bundle
+        env:
+          SWIFT_WINUI_PREBUILT: ${{ runner.temp }}\out\swift-winui.artifactbundle
         run: |
           $c = Join-Path $env:RUNNER_TEMP "consumer"
+          if (Test-Path $c) { Remove-Item $c -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "$c/Sources/Probe" | Out-Null
-          Copy-Item -Recurse "$env:RUNNER_TEMP/out/swift-winui.artifactbundle" $c
-          @'
+          @"
           // swift-tools-version: 5.10
           import PackageDescription
           let package = Package(
               name: "Consumer",
-              products: [
-                  .library(name: "WinUI", targets: ["SwiftWinUIPrebuilt"]),
-                  .library(name: "UWP", targets: ["SwiftWinUIPrebuilt"]),
-                  .library(name: "WinAppSDK", targets: ["SwiftWinUIPrebuilt"]),
-                  .library(name: "WindowsFoundation", targets: ["SwiftWinUIPrebuilt"]),
-                  .library(name: "WebView2Core", targets: ["SwiftWinUIPrebuilt"]),
-                  .library(name: "CWinRT", targets: ["SwiftWinUIPrebuilt"]),
-              ],
+              dependencies: [.package(path: #"$($env:GITHUB_WORKSPACE)"#)],
               targets: [
-                  .binaryTarget(name: "SwiftWinUIPrebuilt", path: "swift-winui.artifactbundle"),
-                  .target(name: "Probe", dependencies: ["SwiftWinUIPrebuilt"]),
+                  .target(name: "Probe", dependencies: [
+                      .product(name: "WinUI", package: "swift-winui"),
+                      .product(name: "UWP", package: "swift-winui"),
+                      .product(name: "WinAppSDK", package: "swift-winui"),
+                      .product(name: "WindowsFoundation", package: "swift-winui"),
+                      .product(name: "WebView2Core", package: "swift-winui"),
+                      .product(name: "CWinRT", package: "swift-winui"),
+                  ]),
               ]
           )
-          '@ | Set-Content "$c/Package.swift" -Encoding utf8
+          "@ | Set-Content "$c/Package.swift" -Encoding utf8
           @'
           import WinUI
           import UWP
@@ -148,14 +150,18 @@ jobs:
           import WebView2Core
           import CWinRT
 
-          // Touch a symbol from the projections so the module really has to load
-          // and the static library really has to resolve at link time.
-          public func probe() -> String {
-              String(describing: WinUI.Button.self)
+          // Touch symbols from several projections so the modules really have to
+          // load, and so the static archive really has to resolve at link time.
+          public func probe() -> [String] {
+              [
+                  String(describing: WinUI.Button.self),
+                  String(describing: UWP.Uri.self),
+                  String(describing: WindowsFoundation.IReference.self),
+              ]
           }
           '@ | Set-Content "$c/Sources/Probe/Probe.swift" -Encoding utf8
           Push-Location $c
-          swift build -v
+          swift build
           Pop-Location
 
       - name: Upload bundle as workflow artifact

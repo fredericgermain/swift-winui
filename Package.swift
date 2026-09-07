@@ -70,6 +70,16 @@ let package = Package(
     ]
 )
 
+// Release asset published by .github/workflows/prebuilts.yml, and its checksum
+// as reported by `swift package compute-checksum`. Updated per prebuilt release.
+let prebuiltVersion = "0.2.2"
+let prebuiltSwiftTag = "6.1-RELEASE"
+let prebuiltURL =
+    "https://github.com/fredericgermain/swift-winui/releases/download/"
+    + "prebuilt-\(prebuiltVersion)/swift-winui-\(prebuiltVersion)"
+    + "-x86_64-unknown-windows-msvc-\(prebuiltSwiftTag).artifactbundle.zip"
+let prebuiltChecksum = "0000000000000000000000000000000000000000000000000000000000000000"
+
 // MARK: - Prebuilt aggregation
 //
 // When SWIFT_WINUI_AGGREGATE is set, expose a single static library product that
@@ -92,5 +102,46 @@ if ProcessInfo.processInfo.environment["SWIFT_WINUI_AGGREGATE"] != nil {
                 "CWinAppSDK",
             ]
         )
+    ]
+}
+
+// MARK: - Prebuilt consumption
+//
+// Setting SWIFT_WINUI_PREBUILT makes this package vend its six public products
+// from a prebuilt artifact bundle instead of compiling the ~317 generated WinRT
+// projection sources. Unset (the default) the package builds from source exactly
+// as upstream does, which is the fallback whenever no bundle matches the host.
+//
+//   SWIFT_WINUI_PREBUILT=1            use the release named by prebuiltURL below
+//   SWIFT_WINUI_PREBUILT=<path>       use a local .artifactbundle (used by CI)
+//
+// Caveat: a Swift module is only loadable by the compiler version that produced
+// it, so a bundle is valid for one Swift release only. The toolchain version is
+// part of the release asset name, and the pin below must match it.
+if let prebuilt = ProcessInfo.processInfo.environment["SWIFT_WINUI_PREBUILT"],
+   !prebuilt.isEmpty
+{
+    let binaryTarget: Target
+    if prebuilt == "1" || prebuilt.lowercased() == "true" {
+        binaryTarget = .binaryTarget(
+            name: "SwiftWinUIPrebuilt",
+            url: prebuiltURL,
+            checksum: prebuiltChecksum
+        )
+    } else {
+        // A path to a locally built bundle.
+        binaryTarget = .binaryTarget(name: "SwiftWinUIPrebuilt", path: prebuilt)
+    }
+
+    // Every product resolves to the one binary target. SwiftPM collects binary
+    // library paths into a set, so the archive is still linked exactly once.
+    package.targets = [binaryTarget]
+    package.products = [
+        .library(name: "WinUI", targets: ["SwiftWinUIPrebuilt"]),
+        .library(name: "UWP", targets: ["SwiftWinUIPrebuilt"]),
+        .library(name: "WinAppSDK", targets: ["SwiftWinUIPrebuilt"]),
+        .library(name: "WindowsFoundation", targets: ["SwiftWinUIPrebuilt"]),
+        .library(name: "WebView2Core", targets: ["SwiftWinUIPrebuilt"]),
+        .library(name: "CWinRT", targets: ["SwiftWinUIPrebuilt"]),
     ]
 }
