@@ -176,7 +176,7 @@ jobs:
                   String(describing: WinUI.Button.self),
                   String(describing: UWP.ApplicationDataSetVersionHandler.self),
                   String(describing: WinAppSDK.WindowsAppRuntimeInitializer.self),
-                  String(describing: WebView2Core.CoreWebView2Certificate_Manual.self),
+                  String(describing: WebView2Core.CoreWebView2.self),
                   String(describing: (any WindowsFoundation.IReference).self),
               ]
           }
