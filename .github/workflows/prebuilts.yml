@@ -27,8 +27,12 @@ permissions:
   contents: write
 
 env:
-  SWIFT_BRANCH: swift-6.1-release
-  SWIFT_TAG: 6.1-RELEASE
+  # SE-0482 `staticLibrary` artifact bundles need Swift 6.2+, and the
+  # `experimentalWindowsDLL` artifact type needs 6.3+. A toolchain older than
+  # that fails to decode info.json and reports the bundle as containing no
+  # binary artifact at all.
+  SWIFT_BRANCH: swift-6.3.1-release
+  SWIFT_TAG: 6.3.1-RELEASE
 
 jobs:
   build:
