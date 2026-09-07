@@ -64,8 +64,17 @@ jobs:
           "triple=x86_64-unknown-windows-msvc" >> $env:GITHUB_OUTPUT
           "swifttag=${{ env.SWIFT_TAG }}" >> $env:GITHUB_OUTPUT
 
+      # Compiling the projections is the expensive step (~13 min); cache it so
+      # that iterating on packaging does not pay for it every time.
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: winui-build-${{ env.SWIFT_TAG }}-${{ hashFiles('Package.swift', 'Sources/**') }}
+          restore-keys: winui-build-${{ env.SWIFT_TAG }}-
+
       # SWIFT_WINUI_AGGREGATE makes Package.swift expose a single static library
-      # product covering every target, so the whole package archives into one .lib.
+      # product covering every target, so the whole package archives into one lib.
       - name: Build aggregate static library
         env:
           SWIFT_WINUI_AGGREGATE: "1"
@@ -77,8 +86,10 @@ jobs:
         run: |
           $bin = swift build -c release --show-bin-path
           "binpath=$bin" >> $env:GITHUB_OUTPUT
-          Get-ChildItem $bin -Filter *.lib | Format-Table Name, Length
-          Get-ChildItem (Join-Path $bin "Modules") | Format-Table Name, Length
+          Write-Host "--- $bin ---"
+          Get-ChildItem $bin -File | Format-Table Name, Length | Out-String | Write-Host
+          Write-Host "--- Modules ---"
+          Get-ChildItem (Join-Path $bin "Modules") | Format-Table Name, Length | Out-String | Write-Host
         id: bin
 
       - name: Assemble artifact bundle

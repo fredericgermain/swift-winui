@@ -72,9 +72,23 @@ $modulesDir = Join-Path $incDir "Modules"
 New-Item -ItemType Directory -Force -Path $modulesDir | Out-Null
 
 # --- 1. the static library ------------------------------------------------
-$lib = Require-Path (Join-Path $BuildDir "SwiftWinUIAggregate.lib") "aggregate static library"
+# `swift build` on Windows names a static library product either
+# SwiftWinUIAggregate.lib or libSwiftWinUIAggregate.a depending on the
+# toolchain; Apple's own swift-syntax Windows prebuilts ship a .a. Accept both.
+$libCandidates = @("SwiftWinUIAggregate.lib", "libSwiftWinUIAggregate.a", "SwiftWinUIAggregate.a")
+$lib = $null
+foreach ($candidate in $libCandidates) {
+    $p = Join-Path $BuildDir $candidate
+    if (Test-Path -LiteralPath $p) { $lib = (Resolve-Path -LiteralPath $p).Path; break }
+}
+if (-not $lib) {
+    Write-Host "contents of ${BuildDir}:"
+    Get-ChildItem -LiteralPath $BuildDir | Format-Table Name, Length | Out-String | Write-Host
+    throw "aggregate static library not found; tried: $($libCandidates -join ', ')"
+}
+$libName = Split-Path $lib -Leaf
 Copy-Item -LiteralPath $lib -Destination $archDir
-Write-Host "lib: $([math]::Round((Get-Item $lib).Length / 1MB, 1)) MB"
+Write-Host "lib: $libName $([math]::Round((Get-Item $lib).Length / 1MB, 1)) MB"
 
 # --- 2. the Swift module descriptions -------------------------------------
 # `-I <dir>` makes swiftc look for <ModuleName>.swiftmodule in <dir>.
@@ -136,7 +150,7 @@ $info = [ordered]@{
             type     = "staticLibrary"
             variants = @(
                 [ordered]@{
-                    path                 = "$Triple/SwiftWinUIAggregate.lib"
+                    path                 = "$Triple/$libName"
                     supportedTriples     = @($Triple)
                     staticLibraryMetadata = [ordered]@{
                         headerPaths   = @(
