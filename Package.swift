@@ -73,12 +73,12 @@ let package = Package(
 // Release asset published by .github/workflows/prebuilts.yml, and its checksum
 // as reported by `swift package compute-checksum`. Updated per prebuilt release.
 let prebuiltVersion = "0.2.2"
-let prebuiltSwiftTag = "6.3.1-RELEASE"
+let prebuiltSwiftTag = "6.3.3-RELEASE"
 let prebuiltURL =
     "https://github.com/fredericgermain/swift-winui/releases/download/"
     + "prebuilt-\(prebuiltVersion)/swift-winui-\(prebuiltVersion)"
     + "-x86_64-unknown-windows-msvc-\(prebuiltSwiftTag).artifactbundle.zip"
-let prebuiltChecksum = "f5332134a1b36c9efc1292b1a2a098a225242a42ecb6e61039e283ac786f69a6"
+let prebuiltChecksum = "4e2d14e6fee78b774f314730b14fc72cb17b43bc23b8052de77ddac70eaa474a"
 
 // MARK: - Prebuilt aggregation
 //
