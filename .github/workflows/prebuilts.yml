@@ -15,6 +15,10 @@ on:
         description: "Version to record in info.json and in the release tag"
         required: true
         default: "0.2.2"
+      swift_version:
+        description: "Swift release to build with, e.g. 6.3.3"
+        required: true
+        default: "6.3.3"
       publish:
         description: "Create/update a GitHub release with the bundle"
         type: boolean
@@ -31,8 +35,13 @@ env:
   # `experimentalWindowsDLL` artifact type needs 6.3+. A toolchain older than
   # that fails to decode info.json and reports the bundle as containing no
   # binary artifact at all.
-  SWIFT_BRANCH: swift-6.3.1-release
-  SWIFT_TAG: 6.3.1-RELEASE
+  #
+  # A bundle is only loadable by the exact compiler that produced it, so the
+  # toolchain is an input: one release tag can carry one asset per toolchain,
+  # and consumers pick by asset name. Tag pushes use the default below.
+  SWIFT_VERSION: ${{ github.event.inputs.swift_version || '6.3.3' }}
+  SWIFT_BRANCH: swift-${{ github.event.inputs.swift_version || '6.3.3' }}-release
+  SWIFT_TAG: ${{ github.event.inputs.swift_version || '6.3.3' }}-RELEASE
 
 jobs:
   build:
